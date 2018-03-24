@@ -1,3 +1,5 @@
+*NB: this is deprecated and will go away in a few days. See https://github.com/rjkroege/edwood instead.*
+
 # acme
 Go port of Rob Pike's Acme editor, based on the implementation in plan9port.
 
