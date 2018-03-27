@@ -2,9 +2,17 @@ package frame
 
 import (
 	"image"
+	"log"
 	"unicode/utf8"
 )
 
+// canfit measures the b's string contents and determines if it fits
+// in the region of the screen between pt and the right edge of the
+// text-containing region. Returned values have several cases.
+//
+// If b has width, returns the index of the first  rune known
+// to not fit and true if more thna 0 runes fit.
+// If b has no width, use minwidth instead of width.
 func (f *Frame) canfit(pt image.Point, b *frbox) (int, bool) {
 	left := f.Rect.Max.X - pt.X
 	if b.Nrune < 0 {
@@ -20,12 +28,14 @@ func (f *Frame) canfit(pt image.Point, b *frbox) (int, bool) {
 	}
 
 	w := 0
-	for nr := 0; nr < len(b.Ptr); nr += w {
-		_, w = utf8.DecodeRune(b.Ptr[nr:])
-		left -= f.Font.StringWidth(string(b.Ptr[nr : nr+1]))
+	o := 0
+	for nr := 0; nr < b.Nrune; nr++ {
+		_, w = utf8.DecodeRune(b.Ptr[o:])
+		left -= f.Font.StringWidth(string(b.Ptr[o : o+w]))
 		if left < 0 {
 			return nr, nr != 0
 		}
+		o += w
 	}
 	return 0, false
 }
@@ -34,12 +44,12 @@ func (f *Frame) cklinewrap(p *image.Point, b *frbox) {
 	if b.Nrune < 0 {
 		if b.Minwid > byte(f.Rect.Max.X-p.X) {
 			p.X = f.Rect.Min.X
-			p.Y += f.Font.Height
+			p.Y += f.Font.DefaultHeight()
 		}
 	} else {
 		if b.Wid > f.Rect.Max.X-p.X {
 			p.X = f.Rect.Min.X
-			p.Y += f.Font.Height
+			p.Y += f.Font.DefaultHeight()
 		}
 	}
 }
@@ -47,14 +57,14 @@ func (f *Frame) cklinewrap(p *image.Point, b *frbox) {
 func (f *Frame) cklinewrap0(p *image.Point, b *frbox) {
 	if _, ok := f.canfit(*p, b); !ok {
 		p.X = f.Rect.Min.X
-		p.Y += f.Font.Height
+		p.Y += f.Font.DefaultHeight()
 	}
 }
 
 func (f *Frame) advance(p *image.Point, b *frbox) {
 	if b.Nrune < 0 && b.Bc == '\n' {
 		p.X = f.Rect.Min.X
-		p.Y += f.Font.Height
+		p.Y += f.Font.DefaultHeight()
 	} else {
 		p.X += b.Wid
 	}
@@ -83,7 +93,11 @@ func (f *Frame) newwid0(pt image.Point, b *frbox) int {
 	return x - pt.X
 }
 
+// TODO(rjk): broken. does not fix up the world correctly?
+// clean merges boxes where possible over boxes [n0, n1)
 func (f *Frame) clean(pt image.Point, n0, n1 int) {
+	log.Println("clean", pt, n0, n1, f.Rect.Max.X)
+	//	f.Logboxes("--- clean: starting ---")
 	c := f.Rect.Max.X
 	nb := 0
 	for nb = n0; nb < n1-1; nb++ {
@@ -109,20 +123,31 @@ func (f *Frame) clean(pt image.Point, n0, n1 int) {
 	if pt.Y >= f.Rect.Max.Y {
 		f.lastlinefull = 1
 	}
+	//	f.Logboxes("--- clean: end")
 }
 
-func nbyte(f *frbox) uint {
-	if f.Nrune < 0 {
-		return 1 // treat as single break character
-	} else {
-		return uint(f.Nrune)
-	}
+func nbyte(f *frbox) int {
+	return len(f.Ptr)
 }
 
 func nrune(f *frbox) int {
-	return len(f.Ptr)
+	if f.Nrune < 0 {
+		return 1
+	} else {
+		return f.Nrune
+	}
 }
 
 func Rpt(min, max image.Point) image.Rectangle {
 	return image.Rectangle{Min: min, Max: max}
+}
+
+// Logboxes shows the box model to the log for debugging convenience.
+func (f *Frame) Logboxes(message string) {
+	log.Println(message)
+	for i, b := range f.box {
+		if b != nil {
+			log.Printf("	box[%d] -> %#v width %d\n", i, string(b.Ptr), b.Wid)
+		}
+	}
 }

@@ -2,23 +2,30 @@ package frame
 
 import (
 	"image"
+	"log"
 )
 
-func (f *Frame) Delete(p0, p1 uint64) int {
+// Delete deletes from the Frame the text between p0 and p1; p1 points at
+// the first rune beyond the deletion.
+func (f *Frame) Delete(p0, p1 int) int {
+	log.Println("Delete")
 	var r image.Rectangle
 
-	if p0 <= uint64(f.nchars) || p0 == p1 || f.Background == nil {
+	if p0 >= f.nchars || p0 == p1 || f.Background == nil {
 		return 0
 	}
-	if p1 > uint64(f.nchars) {
-		p1 = uint64(f.nchars)
+	if p1 > f.nchars {
+		p1 = f.nchars
 	}
+
+	log.Println("Delete is doing something")
+
 	n0 := f.findbox(0, 0, p0)
 	if n0 == f.nbox {
 		panic("off end in Frame.Delete")
 	}
 
-	n1 := f.findbox(uint64(n0), p0, p1)
+	n1 := f.findbox(n0, p0, p1)
 	pt0 := f.ptofcharnb(p0, n0)
 	pt1 := f.Ptofchar(p1)
 
@@ -54,32 +61,32 @@ func (f *Frame) Delete(p0, p1 uint64) int {
 
 		r.Min = pt0
 		r.Max = pt0
-		r.Max.Y += f.Font.Height
+		r.Max.Y += f.Font.DefaultHeight()
 
 		if b.Nrune > 0 {
 			w0 := b.Wid
 			if n != b.Nrune {
-				f.splitbox(uint64(n1), uint64(n))
+				f.splitbox(n1, n)
 				b = f.box[n1]
 			}
 			r.Max.X += int(b.Wid)
 			f.Background.Draw(r, f.Background, nil, pt1)
-			cn1 += uint64(b.Nrune)
+			cn1 += b.Nrune
 
 			r.Min.X = r.Max.X
 			r.Max.X += int(w0 - b.Wid)
 			if r.Max.X > f.Rect.Max.X {
 				r.Max.X = f.Rect.Max.X
 			}
-			f.Background.Draw(r, f.Cols[colBack], nil, r.Min)
+			f.Background.Draw(r, f.Cols[ColBack], nil, r.Min)
 		} else {
 			r.Max.X += f.newwid(pt0, b)
 			if r.Max.X > f.Rect.Max.X {
 				r.Max.X = f.Rect.Max.X
 			}
-			col := f.Cols[colBack]
+			col := f.Cols[ColBack]
 			if f.p0 <= cn1 && cn1 < f.p1 {
-				col = f.Cols[colHigh]
+				col = f.Cols[ColHigh]
 			}
 			f.Background.Draw(r, col, nil, pt0)
 			cn1++
@@ -94,7 +101,7 @@ func (f *Frame) Delete(p0, p1 uint64) int {
 	}
 
 	if n1 == f.nbox && pt0.X != pt1.X {
-		f.SelectPaint(pt0, pt1, f.Cols[colBack])
+		f.SelectPaint(pt0, pt1, f.Cols[ColBack])
 	}
 	if pt1.Y != pt0.Y {
 		pt2 := f.ptofcharptb(32767, pt1, n1)
@@ -103,9 +110,10 @@ func (f *Frame) Delete(p0, p1 uint64) int {
 		}
 
 		if n1 < f.nbox {
-			q0 := pt0.Y + f.Font.Height
-			q1 := pt1.Y + f.Font.Height
-			q2 := pt2.Y + f.Font.Height
+			height := f.Font.DefaultHeight()
+			q0 := pt0.Y + height
+			q1 := pt1.Y + height
+			q2 := pt2.Y + height
 
 			if q2 > f.Rect.Max.Y {
 				q2 = f.Rect.Max.Y
@@ -113,9 +121,9 @@ func (f *Frame) Delete(p0, p1 uint64) int {
 
 			f.Background.Draw(image.Rect(pt0.X, pt0.Y, pt0.X+(f.Rect.Max.X-pt1.X), q0), f.Background, nil, pt1)
 			f.Background.Draw(image.Rect(f.Rect.Min.X, q0, f.Rect.Max.X, q0+(q2-q1)), f.Background, nil, image.Pt(f.Rect.Min.X, q1))
-			f.SelectPaint(image.Pt(pt2.X, pt2.Y-(pt1.Y-pt0.Y)), pt2, f.Cols[colBack])
+			f.SelectPaint(image.Pt(pt2.X, pt2.Y-(pt1.Y-pt0.Y)), pt2, f.Cols[ColBack])
 		} else {
-			f.SelectPaint(pt0, pt2, f.Cols[colBack])
+			f.SelectPaint(pt0, pt2, f.Cols[ColBack])
 		}
 	}
 	f.closebox(n0, n1-1)
@@ -146,9 +154,9 @@ func (f *Frame) Delete(p0, p1 uint64) int {
 	if f.p0 == f.p1 {
 		f.Tick(f.Ptofchar(f.p0), true)
 	}
-	pt0 = f.Ptofchar(uint64(f.nchars))
+	pt0 = f.Ptofchar(f.nchars)
 	n := f.nlines
-	f.nlines = (pt0.Y - f.Rect.Min.Y) / f.Font.Height
+	f.nlines = (pt0.Y - f.Rect.Min.Y) / f.Font.DefaultHeight()
 	if pt0.X > f.Rect.Min.X {
 		f.nlines++
 	}

@@ -5,8 +5,7 @@ import (
 	"unicode/utf8"
 )
 
-func (f *Frame) ptofcharptb(p uint64, pt image.Point, bn int) image.Point {
-
+func (f *Frame) ptofcharptb(p int, pt image.Point, bn int) image.Point {
 	var b *frbox
 	var w int
 	var r rune
@@ -15,7 +14,7 @@ func (f *Frame) ptofcharptb(p uint64, pt image.Point, bn int) image.Point {
 		b = f.box[bn]
 		f.cklinewrap(&pt, b)
 		l := nrune(b)
-		if p < uint64(l) {
+		if p < l {
 			if b.Nrune > 0 {
 				for s := 0; s < len(b.Ptr) && p > 0; s += w {
 					p--
@@ -28,18 +27,18 @@ func (f *Frame) ptofcharptb(p uint64, pt image.Point, bn int) image.Point {
 			}
 			break
 		}
-		p -= uint64(l)
+		p -= l
 		f.advance(&pt, b)
 	}
 
 	return pt
 }
 
-func (f *Frame) Ptofchar(p uint64) image.Point {
+func (f *Frame) Ptofchar(p int) image.Point {
 	return f.ptofcharptb(p, f.Rect.Min, 0)
 }
 
-func (f *Frame) ptofcharnb(p uint64, nb int) image.Point {
+func (f *Frame) ptofcharnb(p int, nb int) image.Point {
 	pt := image.Point{}
 	nbox := f.nbox
 	pt = f.ptofcharptb(p, f.Rect.Min, 0)
@@ -49,7 +48,7 @@ func (f *Frame) ptofcharnb(p uint64, nb int) image.Point {
 
 func (f *Frame) grid(p image.Point) image.Point {
 	p.Y -= f.Rect.Min.Y
-	p.Y -= p.Y % f.Font.Height
+	p.Y -= p.Y % f.Font.DefaultHeight()
 	p.Y += f.Rect.Min.Y
 	if p.X > f.Rect.Max.X {
 		p.X = f.Rect.Max.X
@@ -57,11 +56,10 @@ func (f *Frame) grid(p image.Point) image.Point {
 	return p
 }
 
-func (f *Frame) Charofpt(pt image.Point) uint64 {
-
+func (f *Frame) Charofpt(pt image.Point) int {
 	var w, bn int
 	var b *frbox
-	var p uint64
+	var p int
 	var r rune
 
 	pt = f.grid(pt)
@@ -69,15 +67,16 @@ func (f *Frame) Charofpt(pt image.Point) uint64 {
 
 	for bn = 0; bn < f.nbox && qt.Y < pt.Y; bn++ {
 		b = f.box[bn]
-		f.cklinewrap(&pt, b)
+		f.cklinewrap(&qt, b)
 		if qt.Y >= pt.Y {
 			break
 		}
 		f.advance(&qt, b)
-		p += uint64(nrune(b))
+		p += nrune(b)
 	}
 
 	for ; bn < f.nbox && qt.X <= pt.X; bn++ {
+		b = f.box[bn]
 		f.cklinewrap(&qt, b)
 		if qt.Y > pt.Y {
 			break
@@ -100,7 +99,7 @@ func (f *Frame) Charofpt(pt image.Point) uint64 {
 				}
 			}
 		} else {
-			p += uint64(nrune(b))
+			p += nrune(b)
 			f.advance(&qt, b)
 		}
 	}

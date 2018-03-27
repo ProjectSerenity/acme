@@ -4,18 +4,21 @@ import (
 	"unicode/utf8"
 )
 
-const slop uint64 = 25
+const slop = 25
 
-func (f *Frame) addbox(bn, n uint64) {
-	if bn > uint64(f.nbox) {
+// addbox adds  n boxes after bn and shifts the rest up: * box[bn+n]==box[bn]
+func (f *Frame) addbox(bn, n int) {
+	if bn > f.nbox {
 		panic("Frame.addbox")
 	}
-	if uint64(f.nbox)+n > uint64(f.nalloc) {
+
+	if f.nbox+n > f.nalloc {
 		f.growbox(n + slop)
 	}
-	for i := uint64(f.nbox); i >= bn; i-- {
-		f.box[i+n] = f.box[i]
-	}
+
+	// TODO(rjk): This does some extra work becasue nbox != len(f.box)
+	// Use a slice and remove nbox and nalloc.
+	copy(f.box[bn+n:], f.box[bn:])
 	f.nbox += int(n)
 }
 
@@ -23,11 +26,16 @@ func (f *Frame) closebox(n0, n1 int) {
 	if n0 >= f.nbox || n1 >= f.nbox || n1 < n0 {
 		panic("Frame.closebox")
 	}
+	// TODO(rjk): Use copy.
 	n1++
+
 	for i := n1; i < f.nbox; i++ {
 		f.box[i-(n1-n0)] = f.box[i]
 	}
 	f.nbox -= n1 - n0
+	for i := f.nbox; i < f.nbox+(n1-n0); i++ {
+		f.box[i] = nil
+	}
 }
 
 func (f *Frame) delbox(n0, n1 int) {
@@ -47,32 +55,37 @@ func (f *Frame) freebox(n0, n1 int) {
 	}
 	n1++
 	for i := n0; i < n1; i++ {
-		if f.box[i].Nrune >= 0 {
-			f.box[i].Ptr = nil
-		}
+		f.box[i] = nil
 	}
 }
 
-func (f *Frame) growbox(delta uint64) {
-	f.nalloc += int(delta)
+// growbox adds delta new frbox pointers to f.box
+func (f *Frame) growbox(delta int) {
+	f.nalloc += delta
 	f.box = append(f.box, make([]*frbox, delta)...)
 }
 
-func (f *Frame) dupbox(bn uint64) {
+func (f *Frame) dupbox(bn int) {
 	if f.box[bn].Nrune < 0 {
-		panic("dupbox")
+		panic("dupbox invalid Nrune")
 	}
+
+	cp := new(frbox)
+	*cp = *f.box[bn]
+
 	f.addbox(bn, 1)
+	f.box[bn+1] = cp
+
 	if f.box[bn].Nrune >= 0 {
-		p := make([]byte, nbyte(f.box[bn])+1)
+		p := make([]byte, len(f.box[bn].Ptr))
 		copy(p, f.box[bn].Ptr)
 		f.box[bn+1].Ptr = p
 	}
 }
 
-func runeindex(p []byte, n uint64) int {
+func runeindex(p []byte, n int) int {
 	offs := 0
-	for i := uint64(0); i < n; i++ {
+	for i := 0; i < n; i++ {
 		if p[offs] < 0x80 {
 			offs += 1
 		} else {
@@ -83,48 +96,60 @@ func runeindex(p []byte, n uint64) int {
 	return offs
 }
 
-func (f *Frame) truncatebox(b *frbox, n uint64) {
+// truncatebox drops the  last n characters from box b without allocation.
+func (f *Frame) truncatebox(b *frbox, n int) {
 	if b.Nrune < 0 || b.Nrune < int(n) {
 		panic("truncatebox")
 	}
-	b.Nrune -= int(n)
-	b.Ptr[runeindex(b.Ptr, uint64(len(b.Ptr)))] = 0
-	b.Wid = f.Font.StringWidth(string(b.Ptr))
+	b.Nrune -= n
+	b.Ptr = b.Ptr[0:runeindex(b.Ptr, b.Nrune)]
+	b.Wid = f.Font.BytesWidth(b.Ptr)
 }
 
-func (f *Frame) chopbox(b *frbox, n uint64) {
-	if b.Nrune < 0 || b.Nrune < int(n) {
+// chopbox removes the first n chars from box b without allocation.
+func (f *Frame) chopbox(b *frbox, n int) {
+	if b.Nrune < 0 || b.Nrune < n {
 		panic("chopbox")
 	}
 	i := runeindex(b.Ptr, n)
-	copy(b.Ptr, b.Ptr[i:])
-	b.Nrune -= int(n)
-	b.Wid = f.Font.StringWidth(string(b.Ptr))
+	b.Ptr = b.Ptr[i:]
+	b.Nrune -= n
+	b.Wid = f.Font.BytesWidth(b.Ptr)
 }
 
-func (f *Frame) splitbox(bn, n uint64) {
+// splitbox duplicates box [bn] and divides it at rune n into prefix and suffix boxes.
+func (f *Frame) splitbox(bn, n int) {
 	f.dupbox(bn)
-	f.truncatebox(f.box[bn], uint64(f.box[bn].Nrune-int(n)))
+	f.truncatebox(f.box[bn], f.box[bn].Nrune-n)
 	f.chopbox(f.box[bn+1], n)
 }
 
+// mergebox combines boxes bn and bn+1
 func (f *Frame) mergebox(bn int) {
-	f.Insure(bn, nbyte(f.box[bn])+nbyte(f.box[bn+1])+1)
-	i := runeindex(f.box[bn].Ptr, uint64(f.box[bn].Nrune))
-	copy(f.box[bn].Ptr[i:], f.box[bn+1].Ptr)
-	f.box[bn].Wid += f.box[bn+1].Wid
+	b1n := len(f.box[bn].Ptr)
+	b2n := len(f.box[bn+1].Ptr)
+
+	b := make([]byte, 0, b1n+b2n)
+	b = append(b, f.box[bn].Ptr[0:b1n]...)
+	b = append(b, f.box[bn+1].Ptr[0:b2n]...)
+	f.box[bn].Ptr = b
 	f.box[bn].Nrune += f.box[bn+1].Nrune
+	f.box[bn].Wid += f.box[bn+1].Wid
+
 	f.delbox(bn+1, bn+1)
 }
 
-func (f *Frame) findbox(bn, p, q uint64) int {
-	for i := 0; bn < uint64(f.nbox) && p+uint64(nrune(f.box[i])) <= q; i++ {
-		p += uint64(nrune(f.box[i]))
+// findbox finds the box containing q and puts q on a box boundary starting from
+// rune p in box bn.
+func (f *Frame) findbox(bn, p, q int) int {
+	for i := bn; bn < f.nbox && p+nrune(f.box[i]) <= q; i++ {
+		p += nrune(f.box[i])
 		bn++
 	}
+
 	if p != q {
-		f.splitbox(bn, uint64(q-p))
+		f.splitbox(bn, q-p)
 		bn++
 	}
-	return int(bn)
+	return bn
 }

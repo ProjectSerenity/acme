@@ -5,7 +5,21 @@ import (
 	"image"
 )
 
-func region(a, b uint64) int {
+// SetSelectionExtent sets the rune offsets of the selection maintained
+// by the Frame. p0 and p1 must be values that could be returned by Charofpt.
+// TODO(rjk): It is conceivable that we don't need this. It seems like an egregious
+// abstraction violation that it exists.
+func (f *Frame) SetSelectionExtent(p0, p1 int) {
+	f.p0, f.p1 = p0, p1
+}
+
+// GetSelectionExtent returns the rune offsets of the selection maintained by
+// the Frame.
+func (f *Frame) GetSelectionExtent() (int, int) {
+	return f.p0, f.p1
+}
+
+func region(a, b int) int {
 	if a < b {
 		return -1
 	}
@@ -34,17 +48,17 @@ func (f *Frame) Select(mc draw.Mousectl) {
 	f.DrawSel(pt0, p0, p1, true)
 	reg := 0
 
-	var q uint64
+	var q int
 	for mc.Mouse.Buttons == b {
 		scrled := false
 		if f.Scroll != nil {
 			if mp.Y < f.Rect.Min.Y {
-				f.Scroll(f, -(f.Rect.Min.Y-mp.Y)/f.Font.Height-1)
+				f.Scroll(f, -(f.Rect.Min.Y-mp.Y)/f.Font.DefaultHeight()-1)
 				p0 = f.p1
 				p1 = f.p0
 				scrled = true
 			} else if mp.Y > f.Rect.Max.Y {
-				f.Scroll(f, (mp.Y-f.Rect.Max.Y)/f.Font.Height+1)
+				f.Scroll(f, (mp.Y-f.Rect.Max.Y)/f.Font.DefaultHeight()+1)
 				p0 = f.p1
 				p1 = f.p0
 				scrled = true
@@ -119,10 +133,10 @@ func (f *Frame) SelectPaint(p0, p1 image.Point, col *draw.Image) {
 	q0 := p0
 	q1 := p1
 
-	q0.Y += f.Font.Height
-	q1.Y += f.Font.Height
+	q0.Y += f.Font.DefaultHeight()
+	q1.Y += f.Font.DefaultHeight()
 
-	n := (p1.Y - p0.Y) / f.Font.Height
+	n := (p1.Y - p0.Y) / f.Font.DefaultHeight()
 	if f.Background == nil {
 		panic("Frame.SelectPaint B == nil")
 	}
